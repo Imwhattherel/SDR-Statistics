@@ -1,5 +1,8 @@
 # SDRTrunk Statistics Dashboard
 
+![Alt text for the image](images/sdrstats.png)
+
+
 A lightweight Node.js server that receives **SDRTrunk call uploads**, tracks call statistics, and displays them in a clean web dashboard.
 
 - 📡 SDRTrunk → HTTP upload (port 3000)
