@@ -1,0 +1,67 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SDRTrunk Stats</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body style="font-family:sans-serif;padding:20px">
+
+<h1>SDRTrunk Statistics</h1>
+
+<div id="summary"></div>
+
+<h2>Calls by Hour</h2>
+<canvas id="hourChart" height="120"></canvas>
+
+<h2>Top Talkgroups</h2>
+<table border="1" cellpadding="6">
+  <thead>
+    <tr>
+      <th>Talkgroup</th>
+      <th>Calls</th>
+      <th>Minutes</th>
+    </tr>
+  </thead>
+  <tbody id="tgTable"></tbody>
+</table>
+
+<script>
+async function load() {
+  const summary = await fetch("/api/summary").then(r => r.json());
+  const hourly = await fetch("/api/hourly").then(r => r.json());
+  const tgs = await fetch("/api/talkgroups").then(r => r.json());
+
+  document.getElementById("summary").innerHTML = `
+    <p><b>Total Calls:</b> ${summary.total_calls}</p>
+    <p><b>Audio Hours:</b> ${(summary.total_audio_seconds / 3600).toFixed(1)}</p>
+    <p><b>Talkgroups:</b> ${summary.unique_talkgroups}</p>
+  `;
+
+  new Chart(document.getElementById("hourChart"), {
+    type: "bar",
+    data: {
+      labels: hourly.map(h => h.hour),
+      datasets: [{
+        label: "Calls",
+        data: hourly.map(h => h.calls)
+      }]
+    }
+  });
+
+  document.getElementById("tgTable").innerHTML =
+    tgs.map(t => `
+      <tr>
+        <td>${t.talkgroup_id}</td>
+        <td>${t.call_count}</td>
+        <td>${(t.total_seconds / 60).toFixed(1)}</td>
+      </tr>
+    `).join("");
+}
+
+load();
+</script>
+
+</body>
+</html>
