@@ -18,6 +18,19 @@ h1 {
   font-size: 26px;
 }
 
+.toggle {
+  margin-bottom: 14px;
+  display: inline-block;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #8b949e;
+}
+
+.toggle input {
+  margin-right: 6px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -29,13 +42,19 @@ h1 {
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 0 0 1px #21262d;
+  transition: background 0.3s, box-shadow 0.3s, outline 0.3s;
+}
+
+.card.active {
+  outline: 2px solid #3fb950;
+  background: #1f2d22;
+  box-shadow: 0 0 12px rgba(63,185,80,0.6);
 }
 
 .card h3 {
   margin: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #c9d1d9;
 }
 
 .card h3 span {
@@ -73,12 +92,6 @@ h1 {
   justify-content: center;
   font-size: 11px;
   color: #8b949e;
-  transition: background 0.2s;
-}
-
-.heat[data-count]:hover {
-  background: #30363d;
-  cursor: pointer;
 }
 </style>
 </head>
@@ -86,15 +99,34 @@ h1 {
 <body>
 
 <h1>TrunkStats</h1>
+
+<label class="toggle">
+  <input type="checkbox" id="notifyToggle" checked>
+  Highlight active talkgroups
+</label>
+
 <div id="app" class="grid"></div>
 
 <script>
+let lastCounts = {};
+let notifyEnabled = true;
+
+async function init() {
+  const cfg = await fetch("/api/config").then(r => r.json());
+  notifyEnabled = cfg.notifyEnabled;
+  document.getElementById("notifyToggle").checked = notifyEnabled;
+  load();
+}
+
+document.getElementById("notifyToggle").addEventListener("change", e => {
+  notifyEnabled = e.target.checked;
+});
+
 async function load() {
   const d = await fetch("/api/stats").then(r => r.json());
   const el = document.getElementById("app");
   el.innerHTML = "";
 
-  /* TOTAL */
   el.innerHTML += `
     <div class="card">
       <h3>Total Calls</h3>
@@ -102,36 +134,39 @@ async function load() {
     </div>
   `;
 
-  /* TALKGROUPS */
   el.innerHTML += `<div class="section">Talkgroups</div>`;
 
   Object.entries(d.talkgroups)
     .sort((a, b) => b[1] - a[1])
     .forEach(([key, count]) => {
-      // key format: ALPHATAG|DECIMAL
       const [alpha, decimal] = key.split("|");
+      const prev = lastCounts[key] || 0;
+      const active = notifyEnabled && count > prev;
+
       el.innerHTML += `
-        <div class="card">
-          <h3>${alpha || "UNKNOWN"} <span>(${decimal || "?"})</span></h3>
+        <div class="card ${active ? "active" : ""}">
+          <h3>${alpha} <span>(${decimal})</span></h3>
           <div class="value">${count}</div>
         </div>
       `;
+
+      lastCounts[key] = count;
     });
 
-  /* HOURLY HEATMAP */
   el.innerHTML += `<div class="section">Hourly Activity</div>`;
   el.innerHTML += `
     <div class="card" style="grid-column:1/-1">
       <div class="heatmap">
-        ${d.hours.map((v,h) => `<div class="heat" data-count="${v}" title="${v} calls">${h}</div>`).join("")}
+        ${d.hours.map((v, h) =>
+          `<div class="heat" title="${v} calls">${h}</div>`
+        ).join("")}
       </div>
     </div>
   `;
 }
 
-load();
+init();
 setInterval(load, 3000);
 </script>
-
 </body>
 </html>
