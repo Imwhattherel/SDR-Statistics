@@ -1,66 +1,87 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>SDRTrunk Stats</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta charset="utf-8">
+<title>SDRTrunk Stats</title>
+<style>
+body {
+  font-family: system-ui;
+  background: #0d1117;
+  color: #c9d1d9;
+  margin: 0;
+  padding: 20px;
+}
+h1 { margin-top: 0; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px,1fr));
+  gap: 12px;
+}
+.card {
+  background: #161b22;
+  border-radius: 10px;
+  padding: 14px;
+}
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #8b949e;
+}
+.value {
+  font-size: 24px;
+  font-weight: bold;
+}
+.section {
+  grid-column: 1/-1;
+  margin-top: 14px;
+  color: #8b949e;
+}
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(24,1fr);
+  gap: 4px;
+}
+.heat {
+  height: 36px;
+  background: #21262d;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+</style>
 </head>
-<body style="font-family:sans-serif;padding:20px">
+<body>
 
 <h1>SDRTrunk Statistics</h1>
-
-<div id="summary"></div>
-
-<h2>Calls by Hour</h2>
-<canvas id="hourChart" height="120"></canvas>
-
-<h2>Top Talkgroups</h2>
-<table border="1" cellpadding="6">
-  <thead>
-    <tr>
-      <th>Talkgroup</th>
-      <th>Calls</th>
-      <th>Minutes</th>
-    </tr>
-  </thead>
-  <tbody id="tgTable"></tbody>
-</table>
+<div id="app" class="grid"></div>
 
 <script>
 async function load() {
-  const summary = await fetch("/api/summary").then(r => r.json());
-  const hourly = await fetch("/api/hourly").then(r => r.json());
-  const tgs = await fetch("/api/talkgroups").then(r => r.json());
+  const d = await fetch("/api/stats").then(r=>r.json());
+  const el = document.getElementById("app");
+  el.innerHTML = "";
 
-  document.getElementById("summary").innerHTML = `
-    <p><b>Total Calls:</b> ${summary.total_calls}</p>
-    <p><b>Audio Hours:</b> ${(summary.total_audio_seconds / 3600).toFixed(1)}</p>
-    <p><b>Talkgroups:</b> ${summary.unique_talkgroups}</p>
-  `;
+  el.innerHTML += `<div class="card"><h3>Total Calls</h3><div class="value">${d.total}</div></div>`;
 
-  new Chart(document.getElementById("hourChart"), {
-    type: "bar",
-    data: {
-      labels: hourly.map(h => h.hour),
-      datasets: [{
-        label: "Calls",
-        data: hourly.map(h => h.calls)
-      }]
-    }
-  });
+  el.innerHTML += `<div class="section">Talkgroups</div>`;
+  Object.entries(d.talkgroups)
+    .sort((a,b)=>b[1]-a[1])
+    .forEach(([k,v])=>{
+      el.innerHTML += `<div class="card"><h3>${k}</h3><div class="value">${v}</div></div>`;
+    });
 
-  document.getElementById("tgTable").innerHTML =
-    tgs.map(t => `
-      <tr>
-        <td>${t.talkgroup_id}</td>
-        <td>${t.call_count}</td>
-        <td>${(t.total_seconds / 60).toFixed(1)}</td>
-      </tr>
-    `).join("");
+  el.innerHTML += `<div class="section">Hourly Activity</div>
+    <div class="card" style="grid-column:1/-1">
+      <div class="heatmap">
+        ${d.hours.map((_,h)=>`<div class="heat">${h}</div>`).join("")}
+      </div>
+    </div>`;
 }
 
 load();
+setInterval(load, 3000);
 </script>
 
 </body>
