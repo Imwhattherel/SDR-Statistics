@@ -4,24 +4,28 @@ import multer from "multer";
 import sqlite3 from "sqlite3";
 
 /* ================= LOAD TALKGROUP CSV ================= */
+/*
+CSV FORMAT:
+Decimal,Hex,Alpha Tag,Mode,Description,Tag,Category
+*/
+
 const TG_MAP = {};
 
 fs.readFileSync("talkgroups.csv", "utf8")
   .split("\n")
-  .filter(Boolean)
+  .filter(line => line && !line.startsWith("Decimal"))
   .forEach(line => {
     const cols = line.match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g);
     if (!cols || cols.length < 6) return;
 
-    const tgId = cols[0];
-    const description = cols[4].replace(/"/g, "");
-    const service = cols[5].replace(/"/g, "");
+    const decimal = cols[0];
+    const alpha = cols[2].replace(/"/g, "");
+    const tag = cols[5].replace(/"/g, "");
 
-    TG_MAP[tgId] = {
-      name: description,
-      tag: service
-    };
+    TG_MAP[decimal] = { alpha, tag };
   });
+
+console.log(`Loaded ${Object.keys(TG_MAP).length} talkgroups`);
 
 /* ================= DATABASE ================= */
 const db = new sqlite3.Database("./stats.db");
@@ -42,16 +46,19 @@ function inc(key) {
   );
 }
 
-function recordStats(tgName, tag) {
+function recordStats(tgId) {
   const now = new Date();
   const day = now.toISOString().slice(0, 10);
   const hour = now.getHours();
 
+  const tg = TG_MAP[tgId] || { alpha: "UNKNOWN", tag: "Unknown" };
+  const tgKey = `${tg.alpha}|${tgId}`;
+
   inc("ALL");
-  inc(`TG:${tgName}`);
+  inc(`TG:${tgKey}`);
   inc(`DAY:${day}`);
   inc(`HOUR:${hour}`);
-  inc(`TAG:${tag}`);
+  inc(`TAG:${tg.tag}`);
 }
 
 /* ================= SDRTRUNK UPLOAD SERVER (3000) ================= */
@@ -61,18 +68,15 @@ const upload = multer({ dest: "tmp/" });
 uploadApp.post("/api/call-upload", upload.any(), (req, res) => {
   const tgId = req.body.talkgroup;
 
+  // SDRTrunk test connection expects 200
   if (!tgId) {
     return res.status(200).send("incomplete call data: no talkgroup");
   }
 
-  const tg = TG_MAP[tgId] || {
-    name: `TG ${tgId}`,
-    tag: "Unknown"
-  };
+  recordStats(tgId);
 
-  recordStats(tg.name, tg.tag);
-
-  console.log("CALL:", tg.name, "| TG:", tgId);
+  const tg = TG_MAP[tgId];
+  console.log(`CALL: ${tg?.alpha || "UNKNOWN"} (${tgId})`);
 
   if (req.files?.[0]) {
     try { fs.unlinkSync(req.files[0].path); } catch {}
@@ -81,7 +85,7 @@ uploadApp.post("/api/call-upload", upload.any(), (req, res) => {
   res.send("ok");
 });
 
-uploadApp.listen(3000, () => {
+uploadApp.listen(3000, "0.0.0.0", () => {
   console.log("SDRTrunk upload listening on port 3000");
 });
 
@@ -115,6 +119,6 @@ uiApp.get("/api/stats", (req, res) => {
   });
 });
 
-uiApp.listen(3001, () => {
-  console.log("Stats dashboard available at http://localhost:3001");
+uiApp.listen(3001, "0.0.0.0", () => {
+  console.log("Stats dashboard available at http://<server-ip>:3001");
 });
