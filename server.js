@@ -2,16 +2,12 @@ import fs from "fs";
 import express from "express";
 import multer from "multer";
 import sqlite3 from "sqlite3";
+import config from "./config.js";
 
 /* ================= LOAD TALKGROUP CSV ================= */
-/*
-CSV FORMAT:
-Decimal,Hex,Alpha Tag,Mode,Description,Tag,Category
-*/
-
 const TG_MAP = {};
 
-fs.readFileSync("talkgroups.csv", "utf8")
+fs.readFileSync(config.data.talkgroupsCsv, "utf8")
   .split("\n")
   .filter(line => line && !line.startsWith("Decimal"))
   .forEach(line => {
@@ -20,15 +16,21 @@ fs.readFileSync("talkgroups.csv", "utf8")
 
     const decimal = cols[0];
     const alpha = cols[2].replace(/"/g, "");
+    const description = cols[4].replace(/"/g, "");
     const tag = cols[5].replace(/"/g, "");
 
-    TG_MAP[decimal] = { alpha, tag };
+    TG_MAP[decimal] = {
+      decimal,
+      alpha,
+      description,
+      tag
+    };
   });
 
 console.log(`Loaded ${Object.keys(TG_MAP).length} talkgroups`);
 
 /* ================= DATABASE ================= */
-const db = new sqlite3.Database("./stats.db");
+const db = new sqlite3.Database(config.data.database);
 
 db.run(`
   CREATE TABLE IF NOT EXISTS stats (
@@ -46,37 +48,39 @@ function inc(key) {
   );
 }
 
-function recordStats(tgId) {
+function recordStats(tgKey, tag) {
   const now = new Date();
   const day = now.toISOString().slice(0, 10);
   const hour = now.getHours();
-
-  const tg = TG_MAP[tgId] || { alpha: "UNKNOWN", tag: "Unknown" };
-  const tgKey = `${tg.alpha}|${tgId}`;
 
   inc("ALL");
   inc(`TG:${tgKey}`);
   inc(`DAY:${day}`);
   inc(`HOUR:${hour}`);
-  inc(`TAG:${tg.tag}`);
+  inc(`TAG:${tag}`);
 }
 
 /* ================= SDRTRUNK UPLOAD SERVER (3000) ================= */
 const uploadApp = express();
-const upload = multer({ dest: "tmp/" });
+const upload = multer({ dest: config.upload.tmpDir });
 
 uploadApp.post("/api/call-upload", upload.any(), (req, res) => {
-  const tgId = req.body.talkgroup;
+  const tgId = req.body?.talkgroup;
 
-  // SDRTrunk test connection expects 200
   if (!tgId) {
     return res.status(200).send("incomplete call data: no talkgroup");
   }
 
-  recordStats(tgId);
+  const tg = TG_MAP[tgId] || {
+    decimal: tgId,
+    alpha: tgId,
+    tag: "Unknown"
+  };
 
-  const tg = TG_MAP[tgId];
-  console.log(`CALL: ${tg?.alpha || "UNKNOWN"} (${tgId})`);
+  const tgKey = `${tg.alpha}|${tg.decimal}`;
+  recordStats(tgKey, tg.tag);
+
+  console.log(`CALL: ${tg.alpha} (${tg.decimal})`);
 
   if (req.files?.[0]) {
     try { fs.unlinkSync(req.files[0].path); } catch {}
@@ -85,13 +89,13 @@ uploadApp.post("/api/call-upload", upload.any(), (req, res) => {
   res.send("ok");
 });
 
-uploadApp.listen(3000, "0.0.0.0", () => {
-  console.log("SDRTrunk upload listening on port 3000");
+uploadApp.listen(config.upload.port, config.upload.bind, () => {
+  console.log(`SDRTrunk upload listening on port ${config.upload.port}`);
 });
 
 /* ================= STATS + UI SERVER (3001) ================= */
 const uiApp = express();
-uiApp.use(express.static("public"));
+uiApp.use(express.static(config.ui.publicDir));
 
 uiApp.get("/api/stats", (req, res) => {
   db.all("SELECT * FROM stats", [], (_, rows) => {
@@ -119,6 +123,15 @@ uiApp.get("/api/stats", (req, res) => {
   });
 });
 
-uiApp.listen(3001, "0.0.0.0", () => {
-  console.log("Stats dashboard available at http://<server-ip>:3001");
+/* 🔧 CONFIG ENDPOINT */
+uiApp.get("/api/config", (req, res) => {
+  res.json({
+    notifyEnabled: config.notify.enabled
+  });
+});
+
+uiApp.listen(config.ui.port, config.ui.bind, () => {
+  console.log(
+    `Stats dashboard available at http://<server-ip>:${config.ui.port}`
+  );
 });
