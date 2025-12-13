@@ -27,3 +27,6 @@ A lightweight Node.js server that receives **SDRTrunk call uploads**, tracks cal
 
 ```text
 talkgroups.csv
+```
+4. Setup SDR Stream Using RDIO-SCANNER option (no api key needed yet)
+
