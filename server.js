@@ -1,65 +1,120 @@
-const express = require("express");
+import fs from "fs";
+import express from "express";
+import multer from "multer";
+import sqlite3 from "sqlite3";
 
-/* ==============================
-   CONFIG
-================================ */
-const API_KEY = "RDIO-DOWNSTREAM-KEY-ABC123";
+/* ================= LOAD TALKGROUP CSV ================= */
+const TG_MAP = {};
 
-/* ==============================
-   DOWNSTREAM RECEIVER (3000)
-================================ */
-const downstream = express();
-downstream.use(express.json());
+fs.readFileSync("talkgroups.csv", "utf8")
+  .split("\n")
+  .filter(Boolean)
+  .forEach(line => {
+    const cols = line.match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g);
+    if (!cols || cols.length < 6) return;
 
-const calls = [];
+    const tgId = cols[0];
+    const description = cols[4].replace(/"/g, "");
+    const service = cols[5].replace(/"/g, "");
 
-downstream.post("/downstream/call", (req, res) => {
-  const key = req.headers["x-api-key"];
-  if (key !== API_KEY) {
-    return res.status(403).json({ error: "Invalid API key" });
+    TG_MAP[tgId] = {
+      name: description,
+      tag: service
+    };
+  });
+
+/* ================= DATABASE ================= */
+const db = new sqlite3.Database("./stats.db");
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS stats (
+    key TEXT PRIMARY KEY,
+    count INTEGER
+  )
+`);
+
+function inc(key) {
+  db.run(
+    `INSERT INTO stats (key, count)
+     VALUES (?,1)
+     ON CONFLICT(key) DO UPDATE SET count = count + 1`,
+    [key]
+  );
+}
+
+function recordStats(tgName, tag) {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);
+  const hour = now.getHours();
+
+  inc("ALL");
+  inc(`TG:${tgName}`);
+  inc(`DAY:${day}`);
+  inc(`HOUR:${hour}`);
+  inc(`TAG:${tag}`);
+}
+
+/* ================= SDRTRUNK UPLOAD SERVER (3000) ================= */
+const uploadApp = express();
+const upload = multer({ dest: "tmp/" });
+
+uploadApp.post("/api/call-upload", upload.any(), (req, res) => {
+  const tgId = req.body.talkgroup;
+
+  if (!tgId) {
+    return res.status(200).send("incomplete call data: no talkgroup");
   }
 
-  calls.push(req.body);
-  res.json({ status: "ok" });
+  const tg = TG_MAP[tgId] || {
+    name: `TG ${tgId}`,
+    tag: "Unknown"
+  };
+
+  recordStats(tg.name, tg.tag);
+
+  console.log("CALL:", tg.name, "| TG:", tgId);
+
+  if (req.files?.[0]) {
+    try { fs.unlinkSync(req.files[0].path); } catch {}
+  }
+
+  res.send("ok");
 });
 
-downstream.listen(3000, () => {
-  console.log("Downstream receiver listening on port 3000");
+uploadApp.listen(3000, () => {
+  console.log("SDRTrunk upload listening on port 3000");
 });
 
-/* ==============================
-   UI + STATS API (3001)
-================================ */
-const ui = express();
-ui.use(express.static("public"));
+/* ================= STATS + UI SERVER (3001) ================= */
+const uiApp = express();
+uiApp.use(express.static("public"));
 
-ui.get("/api/summary", (req, res) => {
-  const totalCalls = calls.length;
-  const totalSeconds = calls.reduce((s, c) => s + (c.duration || 0), 0);
-  const talkgroups = new Set(calls.map(c => c.talkgroup));
+uiApp.get("/api/stats", (req, res) => {
+  db.all("SELECT * FROM stats", [], (_, rows) => {
+    const result = {
+      total: 0,
+      talkgroups: {},
+      days: {},
+      hours: Array(24).fill(0),
+      tags: {}
+    };
 
-  res.json({
-    total_calls: totalCalls,
-    total_audio_seconds: totalSeconds,
-    unique_talkgroups: talkgroups.size
+    rows.forEach(r => {
+      if (r.key === "ALL") result.total = r.count;
+      else if (r.key.startsWith("TG:"))
+        result.talkgroups[r.key.slice(3)] = r.count;
+      else if (r.key.startsWith("DAY:"))
+        result.days[r.key.slice(4)] = r.count;
+      else if (r.key.startsWith("HOUR:"))
+        result.hours[parseInt(r.key.slice(5))] = r.count;
+      else if (r.key.startsWith("TAG:"))
+        result.tags[r.key.slice(4)] = r.count;
+    });
+
+    res.json(result);
   });
 });
 
-ui.get("/api/hourly", (req, res) => {
-  const hours = {};
-  for (const c of calls) {
-    const h = new Date(c.start_time * 1000).getHours();
-    hours[h] = (hours[h] || 0) + 1;
-  }
-
-  res.json(
-    Object.entries(hours).map(([hour, calls]) => ({
-      hour,
-      calls
-    }))
-  );
-});
-
-ui.listen(3001, () => {
-  console.log("Web UI available on http://localhost:3001");
+uiApp.listen(3001, () => {
+  console.log("Stats dashboard available at http://localhost:3001");
 });
