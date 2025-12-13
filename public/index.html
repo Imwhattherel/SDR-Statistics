@@ -2,82 +2,131 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>SDRTrunk Stats</title>
+<title>TrunkStats</title>
+
 <style>
 body {
-  font-family: system-ui;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont;
   background: #0d1117;
   color: #c9d1d9;
   margin: 0;
   padding: 20px;
 }
-h1 { margin-top: 0; }
+
+h1 {
+  margin-top: 0;
+  font-size: 26px;
+}
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px,1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
+
 .card {
   background: #161b22;
   border-radius: 10px;
   padding: 14px;
+  box-shadow: 0 0 0 1px #21262d;
 }
+
 .card h3 {
   margin: 0 0 6px;
   font-size: 13px;
-  color: #8b949e;
+  font-weight: 600;
+  color: #c9d1d9;
 }
+
+.card h3 span {
+  color: #8b949e;
+  font-weight: normal;
+}
+
 .value {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: bold;
 }
+
 .section {
-  grid-column: 1/-1;
-  margin-top: 14px;
+  grid-column: 1 / -1;
+  margin-top: 18px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  letter-spacing: 0.5px;
   color: #8b949e;
+  text-transform: uppercase;
 }
+
 .heatmap {
   display: grid;
-  grid-template-columns: repeat(24,1fr);
+  grid-template-columns: repeat(24, 1fr);
   gap: 4px;
 }
+
 .heat {
-  height: 36px;
+  height: 34px;
   background: #21262d;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 11px;
+  color: #8b949e;
+  transition: background 0.2s;
+}
+
+.heat[data-count]:hover {
+  background: #30363d;
+  cursor: pointer;
 }
 </style>
 </head>
+
 <body>
 
-<h1>SDRTrunk Statistics</h1>
+<h1>TrunkStats</h1>
 <div id="app" class="grid"></div>
 
 <script>
 async function load() {
-  const d = await fetch("/api/stats").then(r=>r.json());
+  const d = await fetch("/api/stats").then(r => r.json());
   const el = document.getElementById("app");
   el.innerHTML = "";
 
-  el.innerHTML += `<div class="card"><h3>Total Calls</h3><div class="value">${d.total}</div></div>`;
+  /* TOTAL */
+  el.innerHTML += `
+    <div class="card">
+      <h3>Total Calls</h3>
+      <div class="value">${d.total}</div>
+    </div>
+  `;
 
+  /* TALKGROUPS */
   el.innerHTML += `<div class="section">Talkgroups</div>`;
+
   Object.entries(d.talkgroups)
-    .sort((a,b)=>b[1]-a[1])
-    .forEach(([k,v])=>{
-      el.innerHTML += `<div class="card"><h3>${k}</h3><div class="value">${v}</div></div>`;
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([key, count]) => {
+      // key format: ALPHATAG|DECIMAL
+      const [alpha, decimal] = key.split("|");
+      el.innerHTML += `
+        <div class="card">
+          <h3>${alpha || "UNKNOWN"} <span>(${decimal || "?"})</span></h3>
+          <div class="value">${count}</div>
+        </div>
+      `;
     });
 
-  el.innerHTML += `<div class="section">Hourly Activity</div>
+  /* HOURLY HEATMAP */
+  el.innerHTML += `<div class="section">Hourly Activity</div>`;
+  el.innerHTML += `
     <div class="card" style="grid-column:1/-1">
       <div class="heatmap">
-        ${d.hours.map((_,h)=>`<div class="heat">${h}</div>`).join("")}
+        ${d.hours.map((v,h) => `<div class="heat" data-count="${v}" title="${v} calls">${h}</div>`).join("")}
       </div>
-    </div>`;
+    </div>
+  `;
 }
 
 load();
