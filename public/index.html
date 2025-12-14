@@ -15,25 +15,11 @@ body {
 
 h1 {
   margin-top: 0;
-  font-size: 26px;
-}
-
-.toggle {
-  margin-bottom: 14px;
-  display: inline-block;
-  cursor: pointer;
-  user-select: none;
-  font-size: 13px;
-  color: #8b949e;
-}
-
-.toggle input {
-  margin-right: 6px;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px,1fr));
   gap: 12px;
 }
 
@@ -42,24 +28,13 @@ h1 {
   border-radius: 10px;
   padding: 14px;
   box-shadow: 0 0 0 1px #21262d;
-  transition: background 0.3s, box-shadow 0.3s, outline 0.3s;
-}
-
-.card.active {
-  outline: 2px solid #3fb950;
-  background: #1f2d22;
-  box-shadow: 0 0 12px rgba(63,185,80,0.6);
 }
 
 .card h3 {
   margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.card h3 span {
+  font-size: 12px;
   color: #8b949e;
-  font-weight: normal;
+  text-transform: uppercase;
 }
 
 .value {
@@ -70,13 +45,26 @@ h1 {
 .section {
   grid-column: 1 / -1;
   margin-top: 18px;
-  margin-bottom: 6px;
-  font-size: 13px;
-  letter-spacing: 0.5px;
+  font-size: 12px;
   color: #8b949e;
   text-transform: uppercase;
 }
 
+/* LAST CALL */
+.last-call {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.last-time {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+/* HEATMAP */
 .heatmap {
   display: grid;
   grid-template-columns: repeat(24, 1fr);
@@ -85,13 +73,28 @@ h1 {
 
 .heat {
   height: 34px;
-  background: #21262d;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #8b949e;
+  font-weight: 600;
+  color: #0d1117;
+  transition: background .3s, box-shadow .3s;
+}
+
+.heat.current {
+  box-shadow: 0 0 0 2px rgba(255,255,255,.45);
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255,255,255,.6); }
+  70% { box-shadow: 0 0 0 12px rgba(255,255,255,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+}
+
+.heat.pulse {
+  animation: pulse 1.2s ease-out;
 }
 </style>
 </head>
@@ -99,34 +102,54 @@ h1 {
 <body>
 
 <h1>TrunkStats</h1>
-
-<label class="toggle">
-  <input type="checkbox" id="notifyToggle" checked>
-  Highlight active talkgroups
-</label>
-
 <div id="app" class="grid"></div>
 
 <script>
-let lastCounts = {};
-let notifyEnabled = true;
+let lastHours = Array(24).fill(0);
+let lastTotal = 0;
+let lastCallText = "—";
+let lastCallTime = "";
 
-async function init() {
-  const cfg = await fetch("/api/config").then(r => r.json());
-  notifyEnabled = cfg.notifyEnabled;
-  document.getElementById("notifyToggle").checked = notifyEnabled;
-  load();
+function heatColor(norm) {
+  if (norm === 0) return "#21262d";
+  if (norm < 0.25) return "#58a6ff";
+  if (norm < 0.5) return "#3fb950";
+  if (norm < 0.75) return "#d29922";
+  return "#f85149";
 }
 
-document.getElementById("notifyToggle").addEventListener("change", e => {
-  notifyEnabled = e.target.checked;
-});
+function format12h(h) {
+  const hr = h % 12 || 12;
+  return hr + (h < 12 ? "a" : "p");
+}
+
+function now12h() {
+  const d = new Date();
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2,"0");
+  const am = h < 12;
+  h = h % 12 || 12;
+  return `${h}:${m} ${am ? "AM" : "PM"}`;
+}
 
 async function load() {
   const d = await fetch("/api/stats").then(r => r.json());
   const el = document.getElementById("app");
   el.innerHTML = "";
 
+  /* Detect new call */
+  if (d.total > lastTotal) {
+    const latestTG = Object.entries(d.talkgroups)
+      .sort((a,b)=>b[1]-a[1])[0];
+    if (latestTG) {
+      const [k] = latestTG;
+      lastCallText = k.replace("|", " (") + ")";
+      lastCallTime = now12h();
+    }
+    lastTotal = d.total;
+  }
+
+  /* TOTAL */
   el.innerHTML += `
     <div class="card">
       <h3>Total Calls</h3>
@@ -134,39 +157,57 @@ async function load() {
     </div>
   `;
 
+  /* LAST CALL */
+  el.innerHTML += `
+    <div class="card">
+      <h3>Last Call</h3>
+      <div class="last-call">${lastCallText}</div>
+      <div class="last-time">${lastCallTime}</div>
+    </div>
+  `;
+
+  /* TALKGROUPS */
   el.innerHTML += `<div class="section">Talkgroups</div>`;
-
   Object.entries(d.talkgroups)
-    .sort((a, b) => b[1] - a[1])
-    .forEach(([key, count]) => {
-      const [alpha, decimal] = key.split("|");
-      const prev = lastCounts[key] || 0;
-      const active = notifyEnabled && count > prev;
-
+    .sort((a,b)=>b[1]-a[1])
+    .forEach(([k,v])=>{
+      const [alpha, dec] = k.split("|");
       el.innerHTML += `
-        <div class="card ${active ? "active" : ""}">
-          <h3>${alpha} <span>(${decimal})</span></h3>
-          <div class="value">${count}</div>
+        <div class="card">
+          <h3>${alpha} (${dec})</h3>
+          <div class="value">${v}</div>
         </div>
       `;
-
-      lastCounts[key] = count;
     });
 
+  /* HOURLY HEATMAP */
   el.innerHTML += `<div class="section">Hourly Activity</div>`;
+
+  const max = Math.max(...d.hours, 1);
+  const nowHour = new Date().getHours();
+
   el.innerHTML += `
     <div class="card" style="grid-column:1/-1">
       <div class="heatmap">
-        ${d.hours.map((v, h) =>
-          `<div class="heat" title="${v} calls">${h}</div>`
-        ).join("")}
+        ${d.hours.map((v,h)=>{
+          const pulse = v > lastHours[h] ? "pulse" : "";
+          lastHours[h] = v;
+          return `
+            <div class="heat ${pulse} ${h===nowHour?"current":""}"
+                 style="background:${heatColor(v/max)}"
+                 title="${v} calls">
+              ${format12h(h)}
+            </div>
+          `;
+        }).join("")}
       </div>
     </div>
   `;
 }
 
-init();
+load();
 setInterval(load, 3000);
 </script>
+
 </body>
 </html>
