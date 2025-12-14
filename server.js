@@ -21,8 +21,6 @@ fs.readFileSync(config.data.talkgroupsCsv, "utf8")
     TG_MAP[decimal] = { decimal, alpha, tag };
   });
 
-console.log(`Loaded ${Object.keys(TG_MAP).length} talkgroups`);
-
 /* ================= DATABASE ================= */
 const db = new sqlite3.Database(config.data.database);
 
@@ -54,7 +52,7 @@ function inc(key) {
 
 function getWeekStart(d) {
   const date = new Date(d);
-  date.setHours(0, 0, 0, 0);
+  date.setHours(0,0,0,0);
   date.setDate(date.getDate() - date.getDay());
   return date.getTime();
 }
@@ -62,7 +60,7 @@ function getWeekStart(d) {
 function recordStats(tgKey, tag) {
   const now = new Date();
   const ts = now.getTime();
-  const day = now.toISOString().slice(0, 10);
+  const day = now.toISOString().slice(0,10);
   const hour = now.getHours();
   const year = now.getFullYear();
   const week = getWeekStart(now);
@@ -75,52 +73,32 @@ function recordStats(tgKey, tag) {
   inc(`WEEK:${week}`);
   inc(`TAG:${tag}`);
 
-  db.run(
-    `INSERT INTO calls (tgKey, ts) VALUES (?, ?)`,
-    [tgKey, ts]
-  );
+  db.run(`INSERT INTO calls (tgKey, ts) VALUES (?, ?)`, [tgKey, ts]);
 }
 
-/* ================= SDRTRUNK UPLOAD SERVER (3000) ================= */
+/* ================= SDRTRUNK UPLOAD ================= */
 const uploadApp = express();
 const upload = multer({ dest: config.upload.tmpDir });
 
 uploadApp.post("/api/call-upload", upload.any(), (req, res) => {
   const tgId = req.body?.talkgroup;
+  if (!tgId) return res.send("ok");
 
-  if (!tgId) {
-    return res.status(200).send("incomplete call data: no talkgroup");
-  }
+  const tg = TG_MAP[tgId] || { alpha: tgId, decimal: tgId, tag: "Unknown" };
+  recordStats(`${tg.alpha}|${tg.decimal}`, tg.tag);
 
-  const tg = TG_MAP[tgId] || {
-    decimal: tgId,
-    alpha: tgId,
-    tag: "Unknown"
-  };
-
-  const tgKey = `${tg.alpha}|${tg.decimal}`;
-  recordStats(tgKey, tg.tag);
-
-  console.log(`CALL: ${tg.alpha} (${tg.decimal})`);
-
-  if (req.files?.[0]) {
-    try { fs.unlinkSync(req.files[0].path); } catch {}
-  }
-
+  if (req.files?.[0]) fs.unlink(req.files[0].path, ()=>{});
   res.send("ok");
 });
 
-uploadApp.listen(config.upload.port, config.upload.bind, () => {
-  console.log(`SDRTrunk upload listening on port ${config.upload.port}`);
-});
+uploadApp.listen(config.upload.port, config.upload.bind);
 
-/* ================= STATS + UI SERVER (3001) ================= */
+/* ================= UI API ================= */
 const uiApp = express();
 uiApp.use(express.static(config.ui.publicDir));
 
 uiApp.get("/api/stats", (req, res) => {
-  const now = Date.now();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0,10);
   const week = getWeekStart(new Date());
   const year = new Date().getFullYear();
 
@@ -140,37 +118,18 @@ uiApp.get("/api/stats", (req, res) => {
       else if (r.key === `DAY:${today}`) result.today = r.count;
       else if (r.key === `WEEK:${week}`) result.week = r.count;
       else if (r.key === `YEAR:${year}`) result.year = r.count;
-      else if (r.key.startsWith("TG:"))
-        result.talkgroups[r.key.slice(3)] = r.count;
-      else if (r.key.startsWith("HOUR:"))
-        result.hours[parseInt(r.key.slice(5))] = r.count;
+      else if (r.key.startsWith("TG:")) result.talkgroups[r.key.slice(3)] = r.count;
+      else if (r.key.startsWith("HOUR:")) result.hours[+r.key.slice(5)] = r.count;
     });
 
-    db.get(
-      `SELECT tgKey, ts FROM calls ORDER BY ts DESC LIMIT 1`,
-      [],
-      (_, row) => {
-        if (row) {
-          const [alpha, decimal] = row.tgKey.split("|");
-          result.lastCall = {
-            alpha,
-            decimal,
-            time: row.ts
-          };
-        }
-        res.json(result);
+    db.get(`SELECT tgKey, ts FROM calls ORDER BY id DESC LIMIT 1`, [], (_, row) => {
+      if (row) {
+        const [alpha, decimal] = row.tgKey.split("|");
+        result.lastCall = { alpha, decimal, time: row.ts };
       }
-    );
+      res.json(result);
+    });
   });
 });
 
-/* CONFIG */
-uiApp.get("/api/config", (req, res) => {
-  res.json({
-    notifyEnabled: config.notify.enabled
-  });
-});
-
-uiApp.listen(config.ui.port, config.ui.bind, () => {
-  console.log(`Stats dashboard available at http://<server-ip>:${config.ui.port}`);
-});
+uiApp.listen(config.ui.port, config.ui.bind);

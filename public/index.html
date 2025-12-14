@@ -6,208 +6,126 @@
 
 <style>
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont;
-  background: #0d1117;
-  color: #c9d1d9;
-  margin: 0;
-  padding: 20px;
+  font-family: system-ui;
+  background:#0d1117;
+  color:#c9d1d9;
+  padding:20px;
 }
-
-h1 {
-  margin-top: 0;
-}
-
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px,1fr));
-  gap: 12px;
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:12px;
 }
-
 .card {
-  background: #161b22;
-  border-radius: 10px;
-  padding: 14px;
-  box-shadow: 0 0 0 1px #21262d;
+  background:#161b22;
+  border-radius:10px;
+  padding:14px;
+  box-shadow:0 0 0 1px #21262d;
 }
-
 .card h3 {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: #8b949e;
-  text-transform: uppercase;
+  font-size:12px;
+  color:#8b949e;
+  margin:0 0 6px;
 }
-
 .value {
-  font-size: 26px;
-  font-weight: bold;
+  font-size:26px;
+  font-weight:bold;
 }
-
 .section {
-  grid-column: 1 / -1;
-  margin-top: 18px;
-  font-size: 12px;
-  color: #8b949e;
-  text-transform: uppercase;
+  grid-column:1/-1;
+  color:#8b949e;
+  text-transform:uppercase;
+  font-size:12px;
 }
-
-/* LAST CALL */
-.last-call {
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.last-time {
-  font-size: 12px;
-  color: #8b949e;
-}
-
-/* HEATMAP */
 .heatmap {
-  display: grid;
-  grid-template-columns: repeat(24, 1fr);
-  gap: 4px;
+  display:grid;
+  grid-template-columns:repeat(24,1fr);
+  gap:4px;
 }
-
 .heat {
-  height: 34px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: #0d1117;
-  transition: background .3s, box-shadow .3s;
+  height:34px;
+  border-radius:6px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:600;
 }
-
-.heat.current {
-  box-shadow: 0 0 0 2px rgba(255,255,255,.45);
-}
-
 @keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(255,255,255,.6); }
-  70% { box-shadow: 0 0 0 12px rgba(255,255,255,0); }
-  100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+  0%{box-shadow:0 0 0 0 rgba(255,255,255,.6)}
+  70%{box-shadow:0 0 0 12px rgba(255,255,255,0)}
+  100%{box-shadow:0 0 0 0}
 }
-
-.heat.pulse {
-  animation: pulse 1.2s ease-out;
+.pulse {
+  animation:pulse 1.2s ease-out;
 }
 </style>
 </head>
 
 <body>
-
 <h1>TrunkStats</h1>
 <div id="app" class="grid"></div>
 
 <script>
+let lastTG = {};
 let lastHours = Array(24).fill(0);
-let lastTotal = 0;
-let lastCallText = "—";
-let lastCallTime = "";
 
-function heatColor(norm) {
-  if (norm === 0) return "#21262d";
-  if (norm < 0.25) return "#58a6ff";
-  if (norm < 0.5) return "#3fb950";
-  if (norm < 0.75) return "#d29922";
-  return "#f85149";
+function fmt12(ts){
+  const d=new Date(ts);
+  let h=d.getHours();
+  const m=String(d.getMinutes()).padStart(2,"0");
+  const am=h<12;
+  h=h%12||12;
+  return `${h}:${m} ${am?"AM":"PM"}`;
 }
 
-function format12h(h) {
-  const hr = h % 12 || 12;
-  return hr + (h < 12 ? "a" : "p");
-}
+async function load(){
+  const d=await fetch("/api/stats").then(r=>r.json());
+  const el=document.getElementById("app");
+  el.innerHTML="";
 
-function now12h() {
-  const d = new Date();
-  let h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2,"0");
-  const am = h < 12;
-  h = h % 12 || 12;
-  return `${h}:${m} ${am ? "AM" : "PM"}`;
-}
+  el.innerHTML+=`<div class="card"><h3>Total</h3><div class="value">${d.total}</div></div>`;
+  el.innerHTML+=`<div class="card"><h3>Today</h3><div class="value">${d.today}</div></div>`;
+  el.innerHTML+=`<div class="card"><h3>Week</h3><div class="value">${d.week}</div></div>`;
+  el.innerHTML+=`<div class="card"><h3>Year</h3><div class="value">${d.year}</div></div>`;
 
-async function load() {
-  const d = await fetch("/api/stats").then(r => r.json());
-  const el = document.getElementById("app");
-  el.innerHTML = "";
-
-  /* Detect new call */
-  if (d.total > lastTotal) {
-    const latestTG = Object.entries(d.talkgroups)
-      .sort((a,b)=>b[1]-a[1])[0];
-    if (latestTG) {
-      const [k] = latestTG;
-      lastCallText = k.replace("|", " (") + ")";
-      lastCallTime = now12h();
-    }
-    lastTotal = d.total;
+  if(d.lastCall){
+    el.innerHTML+=`
+      <div class="card">
+        <h3>Last Call</h3>
+        <div class="value">${d.lastCall.alpha} (${d.lastCall.decimal})</div>
+        <div>${fmt12(d.lastCall.time)}</div>
+      </div>`;
   }
 
-  /* TOTAL */
-  el.innerHTML += `
-    <div class="card">
-      <h3>Total Calls</h3>
-      <div class="value">${d.total}</div>
-    </div>
-  `;
+  el.innerHTML+=`<div class="section">Talkgroups</div>`;
+  Object.entries(d.talkgroups).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    const pulse=v>(lastTG[k]||0)?"pulse":"";
+    lastTG[k]=v;
+    const [a,id]=k.split("|");
+    el.innerHTML+=`
+      <div class="card ${pulse}">
+        <h3>${a} (${id})</h3>
+        <div class="value">${v}</div>
+      </div>`;
+  });
 
-  /* LAST CALL */
-  el.innerHTML += `
-    <div class="card">
-      <h3>Last Call</h3>
-      <div class="last-call">${lastCallText}</div>
-      <div class="last-time">${lastCallTime}</div>
-    </div>
-  `;
-
-  /* TALKGROUPS */
-  el.innerHTML += `<div class="section">Talkgroups</div>`;
-  Object.entries(d.talkgroups)
-    .sort((a,b)=>b[1]-a[1])
-    .forEach(([k,v])=>{
-      const [alpha, dec] = k.split("|");
-      el.innerHTML += `
-        <div class="card">
-          <h3>${alpha} (${dec})</h3>
-          <div class="value">${v}</div>
-        </div>
-      `;
-    });
-
-  /* HOURLY HEATMAP */
-  el.innerHTML += `<div class="section">Hourly Activity</div>`;
-
-  const max = Math.max(...d.hours, 1);
-  const nowHour = new Date().getHours();
-
-  el.innerHTML += `
+  el.innerHTML+=`<div class="section">Hourly Activity</div>`;
+  const max=Math.max(...d.hours,1);
+  el.innerHTML+=`
     <div class="card" style="grid-column:1/-1">
       <div class="heatmap">
         ${d.hours.map((v,h)=>{
-          const pulse = v > lastHours[h] ? "pulse" : "";
-          lastHours[h] = v;
-          return `
-            <div class="heat ${pulse} ${h===nowHour?"current":""}"
-                 style="background:${heatColor(v/max)}"
-                 title="${v} calls">
-              ${format12h(h)}
-            </div>
-          `;
+          const p=v>lastHours[h]?"pulse":"";
+          lastHours[h]=v;
+          return `<div class="heat ${p}" title="${v} calls">${h}</div>`;
         }).join("")}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 load();
-setInterval(load, 3000);
+setInterval(load,3000);
 </script>
-
 </body>
 </html>
