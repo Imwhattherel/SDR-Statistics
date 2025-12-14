@@ -16,15 +16,9 @@ fs.readFileSync(config.data.talkgroupsCsv, "utf8")
 
     const decimal = cols[0];
     const alpha = cols[2].replace(/"/g, "");
-    const description = cols[4].replace(/"/g, "");
     const tag = cols[5].replace(/"/g, "");
 
-    TG_MAP[decimal] = {
-      decimal,
-      alpha,
-      description,
-      tag
-    };
+    TG_MAP[decimal] = { decimal, alpha, tag };
   });
 
 console.log(`Loaded ${Object.keys(TG_MAP).length} talkgroups`);
@@ -32,12 +26,22 @@ console.log(`Loaded ${Object.keys(TG_MAP).length} talkgroups`);
 /* ================= DATABASE ================= */
 const db = new sqlite3.Database(config.data.database);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS stats (
-    key TEXT PRIMARY KEY,
-    count INTEGER
-  )
-`);
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS stats (
+      key TEXT PRIMARY KEY,
+      count INTEGER
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tgKey TEXT,
+      ts INTEGER
+    )
+  `);
+});
 
 function inc(key) {
   db.run(
@@ -48,16 +52,33 @@ function inc(key) {
   );
 }
 
+function getWeekStart(d) {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - date.getDay());
+  return date.getTime();
+}
+
 function recordStats(tgKey, tag) {
   const now = new Date();
+  const ts = now.getTime();
   const day = now.toISOString().slice(0, 10);
   const hour = now.getHours();
+  const year = now.getFullYear();
+  const week = getWeekStart(now);
 
   inc("ALL");
   inc(`TG:${tgKey}`);
   inc(`DAY:${day}`);
   inc(`HOUR:${hour}`);
+  inc(`YEAR:${year}`);
+  inc(`WEEK:${week}`);
   inc(`TAG:${tag}`);
+
+  db.run(
+    `INSERT INTO calls (tgKey, ts) VALUES (?, ?)`,
+    [tgKey, ts]
+  );
 }
 
 /* ================= SDRTRUNK UPLOAD SERVER (3000) ================= */
@@ -98,32 +119,52 @@ const uiApp = express();
 uiApp.use(express.static(config.ui.publicDir));
 
 uiApp.get("/api/stats", (req, res) => {
+  const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+  const week = getWeekStart(new Date());
+  const year = new Date().getFullYear();
+
   db.all("SELECT * FROM stats", [], (_, rows) => {
     const result = {
       total: 0,
+      today: 0,
+      week: 0,
+      year: 0,
       talkgroups: {},
-      days: {},
       hours: Array(24).fill(0),
-      tags: {}
+      lastCall: null
     };
 
     rows.forEach(r => {
       if (r.key === "ALL") result.total = r.count;
+      else if (r.key === `DAY:${today}`) result.today = r.count;
+      else if (r.key === `WEEK:${week}`) result.week = r.count;
+      else if (r.key === `YEAR:${year}`) result.year = r.count;
       else if (r.key.startsWith("TG:"))
         result.talkgroups[r.key.slice(3)] = r.count;
-      else if (r.key.startsWith("DAY:"))
-        result.days[r.key.slice(4)] = r.count;
       else if (r.key.startsWith("HOUR:"))
         result.hours[parseInt(r.key.slice(5))] = r.count;
-      else if (r.key.startsWith("TAG:"))
-        result.tags[r.key.slice(4)] = r.count;
     });
 
-    res.json(result);
+    db.get(
+      `SELECT tgKey, ts FROM calls ORDER BY ts DESC LIMIT 1`,
+      [],
+      (_, row) => {
+        if (row) {
+          const [alpha, decimal] = row.tgKey.split("|");
+          result.lastCall = {
+            alpha,
+            decimal,
+            time: row.ts
+          };
+        }
+        res.json(result);
+      }
+    );
   });
 });
 
-/* 🔧 CONFIG ENDPOINT */
+/* CONFIG */
 uiApp.get("/api/config", (req, res) => {
   res.json({
     notifyEnabled: config.notify.enabled
@@ -131,7 +172,5 @@ uiApp.get("/api/config", (req, res) => {
 });
 
 uiApp.listen(config.ui.port, config.ui.bind, () => {
-  console.log(
-    `Stats dashboard available at http://<server-ip>:${config.ui.port}`
-  );
+  console.log(`Stats dashboard available at http://<server-ip>:${config.ui.port}`);
 });

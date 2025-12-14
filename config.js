@@ -1,12 +1,12 @@
 export default {
   upload: {
-    port: 3000,
+    port: 4000,
     bind: "0.0.0.0",
     tmpDir: "tmp"
   },
 
   ui: {
-    port: 3001,
+    port: 4001,
     bind: "0.0.0.0",
     publicDir: "public"
   },
