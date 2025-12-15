@@ -54,10 +54,15 @@ function inc(key) {
 
 function getWeekStart(d) {
   const date = new Date(d);
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() - date.getDay());
+  date.setHours(0, 0, 0, 0); // local midnight
+
+  // JS: Sunday = 0, Monday = 1 ... Saturday = 6
+  const day = date.getDay() || 7; // make Sunday = 7
+  date.setDate(date.getDate() - day + 1); // go back to Monday
+
   return date.getTime();
 }
+
 
 function recordStats(tgKey, tag) {
   const now = new Date();
