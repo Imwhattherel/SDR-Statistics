@@ -36,5 +36,5 @@ talkgroups.csv
 # Planed Featues
 - API Key
 - Live Listen
-- Heatmap
+- Hourly Heatmap
   
