@@ -33,3 +33,8 @@ talkgroups.csv
 ```
 4. Setup SDR Stream Using RDIO-SCANNER option (no api key needed yet)
 
+# Planed Featues
+- API Key
+- Live Listen
+- Heatmap
+  
