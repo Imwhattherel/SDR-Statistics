@@ -1,6 +1,6 @@
 # SDRTrunk Statistics Dashboard
 
-![Alt text for the image](images/sdrstats.png)
+![Preview](images/sdrimg.png)
 
 
 A lightweight Node.js server that receives **SDRTrunk call uploads**, tracks call statistics, and displays them in a clean web dashboard.
