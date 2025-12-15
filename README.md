@@ -12,6 +12,14 @@ A lightweight Node.js server that receives **SDRTrunk call uploads**, tracks cal
 
 ---
 
+- SDR Trunk uploads to the dashboard using the RDIO Scanner API 
+- Days reset at 12am
+- Weeks reset mondays at 12am
+- When a talkgroup receives a call it is auto populated to the dasboard
+- Top talkgroup is dispalyed at the top
+- Displays last talkgroup with a call and the time of the call
+- Talkgroups blink when they receive a call
+
 ## Requirements
 
 - Node.js recommended
